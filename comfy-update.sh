@@ -8,7 +8,7 @@
 # version defaults to v0.34.0, the first release with the built-in TRELLIS.2 nodes.
 #
 # What it will not do: touch PyTorch. NVIDIA's container has its own build of torch for this machine; replacing it
-# breaks the graphics card for everything. torch, torchvision and torchaudio are left out of every install and pinned,
+# breaks the graphics card for everything. NVIDIA's torch packages and numpy are pinned at their installed versions,
 # so pip stops with an error rather than swap them. Model files, inputs and outputs live outside the container and
 # are not touched. apply refuses to start while ComfyUI is busy.
 set -u
@@ -19,8 +19,9 @@ say() { echo; echo "== $1"; }
 
 docker inspect "$C" >/dev/null 2>&1 || { echo "PROBLEM: there is no container named $C."; exit 1; }
 
-pins() {      # the torch packages exactly as installed, as pip constraints; and the release's needs without them
-  inside sh -c "python -m pip freeze 2>/dev/null | grep -iE '^(torch|torchvision|torchaudio)(==| @)' > /tmp/swift-pins.txt; cat /tmp/swift-pins.txt"
+PINNED='^(torch|torchvision|torchaudio|torch[-_]tensorrt|torchao|torchdata|torchtitan|numpy)=='
+pins() {      # NVIDIA's own builds exactly as installed, as pip constraints; and the release's needs without the torch lines
+  inside sh -c "python -m pip list --format=freeze 2>/dev/null | grep -iE '$PINNED' > /tmp/swift-pins.txt; cat /tmp/swift-pins.txt"
   inside sh -c "git show '$TARGET:requirements.txt' | grep -viE '^(torch|torchvision|torchaudio)([^a-z]|\$)' > /tmp/swift-req.txt"
 }
 
@@ -31,6 +32,7 @@ check)
   inside sh -c "python -m pip list 2>/dev/null | grep -iE '^(torch|torchvision|torchaudio|comfyui|comfy)'"
   say "Files in ComfyUI changed by hand (other than the placeholder files hidden by the mounted folders)"
   inside sh -c "git status --short | grep -v '^ D' || echo none"
+  inside sh -c "git diff -- . ':(exclude)input' ':(exclude)models' | grep -E '^[+-][^+-]' | head -30"
   say "Fetching the list of releases (this only updates the list)"
   inside git fetch -q --tags origin || { echo "PROBLEM: could not reach GitHub from inside the container."; exit 1; }
   inside sh -c "git tag --sort=-v:refname | head -6"
@@ -55,7 +57,7 @@ apply)
   inside git rev-parse -q --verify "$TARGET^{commit}" >/dev/null || { echo "PROBLEM: there is no release called $TARGET. Nothing was changed."; exit 1; }
   say "Taking a snapshot of ComfyUI as it is now (image comfyui-backup:before-update)"
   docker commit "$C" comfyui-backup:before-update >/dev/null && echo "Snapshot taken." || { echo "PROBLEM: the snapshot failed. Nothing was changed."; exit 1; }
-  inside sh -c "git rev-parse HEAD > $NOTE-prev.txt && python -m pip freeze > $NOTE-pip-before.txt"
+  inside sh -c "git rev-parse HEAD > $NOTE-prev.txt && python -m pip list --format=freeze > $NOTE-pip-before.txt && git diff -- requirements.txt > $NOTE-requirements.patch"
   BEFORE=$(inside python -c 'import torch; print(torch.__version__)')
   pins >/dev/null
   say "Installing what $TARGET needs (torch is pinned and left alone)"
@@ -63,6 +65,7 @@ apply)
   AFTER=$(inside python -c 'import torch; print(torch.__version__)')
   if [ "$BEFORE" != "$AFTER" ]; then echo "PROBLEM: torch changed from $BEFORE to $AFTER. Run: ./comfy-update.sh rollback   and send Claude the lines above."; exit 1; fi
   say "Switching ComfyUI to $TARGET"
+  inside git checkout -q -- requirements.txt      # NVIDIA's hand edit to this list is saved in $NOTE-requirements.patch and put back by rollback
   inside git checkout -q "$TARGET" || { echo "PROBLEM: ComfyUI could not be switched. Run: ./comfy-update.sh rollback   and send Claude the lines above."; exit 1; }
   inside git log --oneline -1
   say "Restarting ComfyUI with the audio patch re-applied"
@@ -78,9 +81,9 @@ apply)
 rollback)
   inside test -f "$NOTE-prev.txt" || { echo "There is no record of an update to undo."; exit 1; }
   say "Putting ComfyUI back"
-  inside sh -c "git checkout -q \$(cat $NOTE-prev.txt) && git log --oneline -1"
+  inside sh -c "git checkout -q -- requirements.txt; git checkout -q \$(cat $NOTE-prev.txt) && git log --oneline -1; [ -s $NOTE-requirements.patch ] && git apply $NOTE-requirements.patch 2>/dev/null; true"
   say "Putting back the Python packages that changed"
-  inside sh -c "python -m pip freeze > /tmp/swift-now.txt; grep -vxFf /tmp/swift-now.txt $NOTE-pip-before.txt | grep -viE '^(torch|torchvision|torchaudio)(==| @)' | grep -E '^[A-Za-z0-9_.-]+==' > /tmp/swift-back.txt; cat /tmp/swift-back.txt; [ -s /tmp/swift-back.txt ] && python -m pip install -q --no-deps -r /tmp/swift-back.txt || echo 'none needed'"
+  inside sh -c "python -m pip list --format=freeze > /tmp/swift-now.txt; grep -vxFf /tmp/swift-now.txt $NOTE-pip-before.txt | grep -viE '$PINNED' | grep -E '^[A-Za-z0-9_.-]+==' > /tmp/swift-back.txt; cat /tmp/swift-back.txt; [ -s /tmp/swift-back.txt ] && python -m pip install -q --no-deps -r /tmp/swift-back.txt || echo 'none needed'"
   ./patch-comfy-audio.sh || docker restart "$C" >/dev/null
   for i in $(seq 1 60); do curl -s localhost:8188/system_stats >/dev/null 2>&1 && break; sleep 5; done
   curl -s localhost:8188/system_stats | grep -o 'comfyui_version[^,]*' || echo "PROBLEM: ComfyUI did not come back. The full snapshot is the image comfyui-backup:before-update; send Claude the output of: docker logs --tail 40 comfyui"
