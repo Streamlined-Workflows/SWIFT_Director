@@ -1,0 +1,22 @@
+# SWIFT Director Launcher packaging: one portable Windows program, no installer. Unsigned.
+appId: com.streamlinedworkflows.director-launcher
+productName: SWIFT Director Launcher
+copyright: Copyright © 2026 Streamlined Workflows & Innovation For Training, L.L.C.
+directories:
+  output: release
+  buildResources: build
+files:
+  - main.js
+  - preload.js
+  - renderer/**/*
+  - build/icon.png
+  - package.json
+asar: true
+npmRebuild: false
+publish: null
+win:
+  target: [portable]
+  icon: build/icon.ico
+  signExecutable: false               # unsigned; the icon and names are still written into the program
+portable:
+  artifactName: SWIFT Director Launcher.exe

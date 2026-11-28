@@ -430,6 +430,32 @@ def studio3d_picture(pid, image):
         return None
 
 
+def launcher_manifest():
+    """What the desktop launcher shows: the places on this server that are opened in a browser over Tailscale, and
+    the services that run beside them for this computer only. Adding an entry here adds a tab in the launcher."""
+    def port_of(url, fallback):
+        try:
+            return urllib.parse.urlsplit(url).port or fallback
+        except ValueError:
+            return fallback
+    return {"app": "SWIFT Director", "version": "1", "services": [
+        {"id": "director", "name": "SWIFT Director", "port": PORT, "path": "/", "reach": "tailscale",
+         "summary": "Your story. Your vision. Directed by you, built by AI. The production studio itself: storyboards, the Asset Generator, audio and 3D.",
+         "about": ["Storyboard: split a song into segments and set each shot yourself.", "Assisted Storyboard: the AI listens to the song and proposes cuts, a story, a cast and key frames for you to approve.",
+                   "Asset Generator: images, reference sheets, depth pictures and 3D assets.", "Audio, Identity Studio, Lore and the AI Models panel.", "It has no login. Reach it over Tailscale only."]},
+        {"id": "comfyui", "name": "ComfyUI", "port": port_of(COMFY, 8188), "path": "/", "reach": "tailscale",
+         "summary": "The node-graph tool that runs the image, video and 3D models on the server. SWIFT Director sends its work here.",
+         "about": ["Open it to try a workflow by hand, watch the queue, or load a template.", "A job started here shares the graphics card with SWIFT Director, so one waits for the other.",
+                   "Model files live in its models folder on the server.", "It has no login. Reach it over Tailscale only."]},
+        {"id": "ollama", "name": "Language model (Ollama)", "port": port_of(assist.OLLAMA, 11434) if hasattr(assist, "OLLAMA") else 11434, "path": "/", "reach": "server",
+         "summary": "Writes and reads for SWIFT Director: story ideas, shot descriptions, picture comparisons.", "about": []},
+        {"id": "assist", "name": "Song analysis", "port": port_of(ASSIST, 8191), "path": "/", "reach": "server",
+         "summary": "Listens to a song: tempo, beats, sections and lyrics, with the option to separate the voice first.", "about": []},
+        {"id": "speech", "name": "Speech", "port": 8192, "path": "/", "reach": "server", "summary": "Generates spoken lines for the Audio tools.", "about": []},
+        {"id": "convert", "name": "3D converter (Blender)", "port": 8193, "path": "/", "reach": "server", "summary": "Turns GLB files into the studio's FBX for 3D Generation.", "about": []},
+    ]}
+
+
 def studio3d_project_name(pid):
     try:
         return load_project(pid).get("name") or pid
@@ -1712,6 +1738,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(models.listing())
             if url.path == "/api/assist/status":
                 return self.send_json(assist_status(query.get("project", [""])[0]))
+            if url.path == "/api/launcher":
+                return self.send_json(launcher_manifest())
             if url.path == "/api/assist/vocals":
                 body = assist_vocals(query.get("project", [""])[0])
                 if body is None:

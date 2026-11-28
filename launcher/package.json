@@ -1,0 +1,19 @@
+{
+  "name": "swift-director-launcher",
+  "productName": "SWIFT Director Launcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A desktop window onto SWIFT Director and the other local services reached over Tailscale",
+  "license": "UNLICENSED",
+  "author": "Streamlined Workflows & Innovation For Training, L.L.C.",
+  "main": "main.js",
+  "scripts": {
+    "assets": "node scripts/assets.mjs",
+    "start": "npm run assets && electron .",
+    "package:win": "npm run assets && electron-builder --config electron-builder.yml --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "44.10.2",
+    "electron-builder": "26.17.0"
+  }
+}

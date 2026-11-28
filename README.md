@@ -35,6 +35,7 @@ It runs as a Docker container named `swift-director` that starts on boot (with `
 | `workflows.py` | Builds the ComfyUI job for each segment. |
 | `assist.py` | Assisted Storyboard: cut points, lyric matching and story prompts for the language model. |
 | `assist-service/` | Song analysis container (lyrics and beats). Built and started by `run.sh`. |
+| `launcher/` | SWIFT Director Launcher: a Windows program with a tab for each place reached over Tailscale. See `launcher/README.md`. |
 | `static/index.html` | The page. |
 
 ## Sidebar

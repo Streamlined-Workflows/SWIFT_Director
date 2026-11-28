@@ -1,0 +1,4 @@
+node_modules/
+release/
+renderer/shared/
+build/icon.png

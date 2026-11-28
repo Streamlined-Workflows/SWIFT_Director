@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <title>SWIFT Director Launcher</title>
+    <link rel="stylesheet" href="shared/swift-tokens.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#view">Skip to content</a>
+    <header class="titlebar" id="titlebar"></header>
+    <div class="shell">
+      <nav class="rail" id="rail" aria-label="Places"></nav>
+      <main class="view" id="view" tabindex="-1"></main>
+    </div>
+    <footer class="statusbar" id="footer"></footer>
+    <div class="toast" id="toast" hidden></div>
+    <div class="sr-only" id="live" role="status" aria-live="polite" aria-atomic="true"></div>
+  </body>
+</html>

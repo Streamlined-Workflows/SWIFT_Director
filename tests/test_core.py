@@ -272,5 +272,18 @@ class ListenWithSeparation(unittest.TestCase):
         finally:
             app.assist_service, app.load_project, app.save_project = real_service, real_load, real_save
 
+
+
+class LauncherManifest(unittest.TestCase):
+    """What the desktop launcher reads to build its tabs."""
+
+    def test_it_lists_the_places_to_open_and_the_server_only_services(self):
+        m = app.launcher_manifest()
+        by = {s["id"]: s for s in m["services"]}
+        self.assertEqual((m["app"], by["director"]["port"], by["director"]["reach"], by["comfyui"]["reach"]), ("SWIFT Director", app.PORT, "tailscale", "tailscale"))
+        self.assertEqual({s["reach"] for s in m["services"]}, {"tailscale", "server"})
+        self.assertTrue(all(isinstance(s["port"], int) and s["name"] and s["summary"] and s["path"].startswith("/") for s in m["services"]))
+        self.assertEqual({by[k]["reach"] for k in ("assist", "speech", "convert", "ollama")}, {"server"})
+
 if __name__ == "__main__":
     unittest.main()
