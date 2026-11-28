@@ -67,6 +67,7 @@ apply)
   say "Switching ComfyUI to $TARGET"
   inside git checkout -q -- requirements.txt      # NVIDIA's hand edit to this list is saved in $NOTE-requirements.patch and put back by rollback
   inside git checkout -q "$TARGET" || { echo "PROBLEM: ComfyUI could not be switched. Run: ./comfy-update.sh rollback   and send Claude the lines above."; exit 1; }
+  inside sed -i -E '/^(torch|torchvision|torchaudio)$/d' requirements.txt      # the same edit NVIDIA made, so nothing later reinstalls torch from this list
   inside git log --oneline -1
   say "Restarting ComfyUI with the audio patch re-applied"
   ./patch-comfy-audio.sh || docker restart "$C" >/dev/null
