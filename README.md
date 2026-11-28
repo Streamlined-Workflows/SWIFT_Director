@@ -63,7 +63,7 @@ A guided pass that turns a song into a planned storyboard. Each step waits for a
 
 | Step | What it does | Runs on |
 |---|---|---|
-| Listen | Tempo, beats, bar lines and sections (librosa); lyrics with timestamps (faster-whisper, CPU). Lyrics can be corrected line by line, or pasted and matched to the timing. | `assist-service/` container, port 8191, local only |
+| Listen | Tempo, beats, bar lines and sections (librosa); lyrics with timestamps (faster-whisper, CPU). Lyrics can be corrected line by line, or pasted and matched to the timing. Each line has a Play button that plays just that part of the song. **Separate the voice first** (optional, Demucs on the CPU) splits the voice from the music and transcribes only the voice; tempo and beats still come from the full song, and the separated voice can then be chosen for the Play buttons. The first use downloads a model of about 80 MB. | `assist-service/` container, port 8191, local only |
 | Split | Picks cut points on bar lines so every segment is 5 to 15 s, favouring section changes and lyric phrase starts and avoiding cuts through a sung line. The language model names the segments and may merge neighbours. | `assist.py` + Ollama |
 | Story | Writes a title, logline, visual style and one beat per segment. Approving copies each beat into its segment's empty prompt. | Ollama |
 | Cast, Shots | Not built yet. | |

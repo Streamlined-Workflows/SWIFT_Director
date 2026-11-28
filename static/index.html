@@ -175,6 +175,7 @@
   #v-assist { counter-reset:step; }
   .lyric { display:flex; gap:8px; align-items:center; margin-bottom:4px; }
   .lyric span { width:96px; flex:none; font-variant-numeric:tabular-nums; }
+  .lyric .lyricPlay { flex:none; min-width:76px; padding:4px 8px; font-size:12px; } .lyric .lyricPlay[aria-pressed="true"] { border-color:var(--swift-ring-strong); color:var(--swift-text-strong); }
   .lyric input { flex:1; }
   .lyrics { max-height:320px; overflow:auto; margin:10px 0; padding-right:6px; }
   table.plan { width:100%; border-collapse:collapse; margin:10px 0; }
@@ -336,9 +337,12 @@
     <!-- Project Configuration Center, drawn by /static/config/config-center.js -->
     <div id="configCenter"></div>
     <section class="step">
-      <div class="row" style="margin-bottom:8px"><h2 style="margin:0">Listen to the song</h2><span class="spacer"></span><span id="anStatus" class="hint"></span><button id="anBtn" class="primary">Analyze song</button></div>
+      <div class="row" style="margin-bottom:8px"><h2 style="margin:0">Listen to the song</h2><span class="spacer"></span><span id="anStatus" class="hint"></span>
+        <label id="anSeparateLabel" class="hint" style="display:inline-flex;gap:6px;align-items:center;margin:0;cursor:pointer" title="Split the voice from the music first and transcribe only the voice. Usually more accurate on busy mixes; adds a few minutes."><input type="checkbox" id="anSeparate" disabled> Separate the voice first</label>
+        <button id="anBtn" class="primary">Analyze song</button></div>
       <div id="anSummary" class="hint">Finds the tempo, beats and sections, and transcribes the lyrics with timing.</div>
       <div id="lyricBox" style="display:none">
+        <div class="row" id="lyricHearRow" style="margin-top:10px"><label for="lyricHear" class="hint" style="margin:0">Play buttons use</label><select id="lyricHear" style="width:auto"><option value="song">the full song</option><option value="voice">the separated voice only</option></select><span id="lyricHearNote" class="hint"></span></div>
         <div class="lyrics" id="lyricLines"></div>
         <div class="row"><button id="lyricSave">Save lyric edits</button><span class="hint">Sung vocals over loud music are hard to transcribe. Fix lines here, or paste the real lyrics below.</span></div>
         <label style="margin-top:12px">Paste the real lyrics (optional)</label>
@@ -661,7 +665,7 @@ function renderOtherLibrary() {
 
 /* ---------- navigation ---------- */
 function show(name) {
-  currentView = name;
+  currentView = name; try { stopLyric(); } catch (e) { /* the player is not set up yet on first load */ }
   document.querySelectorAll('nav button[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === name));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === 'v-' + name));
   if (name !== 'storyboard') $('audio').pause();
@@ -1414,6 +1418,35 @@ $('renderAll').onclick = async ev => {
 
 /* ---------- assisted storyboard ---------- */
 let anTimer = null;
+/* Hearing one lyric line: one player for the whole list, so starting a line stops the one before it. */
+const lyricPlayer = new Audio(); let lyricBtn = null, lyricEnd = 0, voiceUrl = null, voiceFor = '';
+function stopLyric() { lyricPlayer.pause(); if (lyricBtn) { lyricBtn.textContent = '▶ Play'; lyricBtn.setAttribute('aria-pressed', 'false'); } lyricBtn = null; }
+lyricPlayer.addEventListener('timeupdate', () => { if (lyricBtn && lyricPlayer.currentTime >= lyricEnd) stopLyric(); });
+lyricPlayer.addEventListener('ended', stopLyric);
+lyricPlayer.addEventListener('error', () => { if (lyricBtn) { stopLyric(); toast('That audio could not be played.'); } });
+async function lyricSource() {
+  if ($('lyricHear').value !== 'voice') return view(P.song.filename);
+  const key = PID + ':' + (A().analysis_key || '');
+  if (voiceUrl && voiceFor === key) return voiceUrl;
+  const r = await fetch('/api/assist/vocals?project=' + encodeURIComponent(PID));
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'The separated voice could not be fetched.');
+  if (voiceUrl) URL.revokeObjectURL(voiceUrl);
+  voiceUrl = URL.createObjectURL(await r.blob()); voiceFor = key; return voiceUrl;
+}
+async function playLyric(line, btn) {
+  if (lyricBtn === btn) { stopLyric(); return; }
+  stopLyric();
+  if (!P.song) { toast('Choose a song on the Storyboard tab first.'); return; }
+  btn.disabled = true;
+  try {
+    const src = await lyricSource(), from = Math.max(0, line.start - 0.25);
+    if (lyricPlayer.dataset.src !== src) { lyricPlayer.src = src; lyricPlayer.dataset.src = src; await new Promise((ok, bad) => { lyricPlayer.addEventListener('loadedmetadata', ok, { once: true }); lyricPlayer.addEventListener('error', () => bad(new Error('That audio could not be loaded.')), { once: true }); }); }
+    lyricPlayer.currentTime = from; lyricEnd = Math.max(from + 0.5, line.end + 0.25);
+    lyricBtn = btn; btn.textContent = '■ Stop'; btn.setAttribute('aria-pressed', 'true');
+    await lyricPlayer.play();
+  } catch (e) { stopLyric(); toast(e.message); }
+  finally { btn.disabled = false; }
+}
 const A = () => P.assist || {};
 async function reloadProject() { const fresh = await api('/api/project?id=' + PID); P.assist = fresh.assist; P.lore = fresh.lore; return fresh; }
 async function busy(btn, statusEl, label, fn) {
@@ -1428,18 +1461,27 @@ async function renderAssist() {
     const parts = [];
     parts.push(h.service.ok ? 'song analysis ready' : 'song analysis service not running');
     parts.push(!h.llm.ok ? 'language model not reachable' : h.llm.installed ? 'language model ready (' + h.llm.model + ')' : 'model ' + h.llm.model + ' is not downloaded');
+    const sep = $('anSeparate'), can = !!(h.service.ok && h.service.separation);
+    sep.disabled = !can; if (!can) sep.checked = false; else { try { sep.checked = localStorage.getItem('sd.assist.separate') === '1'; } catch (e) { /* private browsing */ } }
+    $('anSeparateLabel').title = can ? 'Split the voice from the music first and transcribe only the voice. Usually more accurate on busy mixes; adds a few minutes. The first use downloads a model of about 80 MB.' : (h.service.ok ? (h.service.separation_reason || 'Voice separation is not set up in the song analysis service. Run the update to add it.') : 'The song analysis service is not running.');
     $('assistHealth').textContent = parts.join(' · '); $('assistHealth').className = h.service.ok && h.llm.ok && h.llm.installed ? 'hint' : 'warn';
   }).catch(() => {});
   const a = A().analysis, lines = A().lines || [];
   $('anBtn').textContent = a ? 'Analyze again' : 'Analyze song';
   $('anSummary').textContent = a ? `${fmt(a.duration)} long · about ${Math.round(a.tempo)} BPM · ${a.downbeats.length} bars · ${a.sections.length} sections · ${lines.length} lyric lines heard` +
-    (a.language ? ` (${a.language})` : '') : (P.song ? 'Finds the tempo, beats and sections, and transcribes the lyrics with timing.' : 'Choose a song on the Storyboard tab first.');
+    (a.language ? ` (${a.language})` : '') + (a.separated ? ' · voice separated from the music first' : '') : (P.song ? 'Finds the tempo, beats and sections, and transcribes the lyrics with timing.' : 'Choose a song on the Storyboard tab first.');
   $('lyricBox').style.display = a ? 'block' : 'none';
   $('lyricLines').innerHTML = lines.length ? '' : '<span class="hint">No sung lines were detected. Paste the lyrics below if the song has vocals.</span>';
-  lines.forEach(l => {
+  stopLyric();
+  const voiceKept = !!(a && a.separated);
+  $('lyricHearRow').style.display = lines.length ? 'flex' : 'none';
+  $('lyricHear').querySelector('[value="voice"]').disabled = !voiceKept; if (!voiceKept) $('lyricHear').value = 'song';
+  $('lyricHearNote').textContent = voiceKept ? '' : 'The voice on its own is available after analyzing with “Separate the voice first”.';
+  lines.forEach((l, i) => {
     const d = document.createElement('div'); d.className = 'lyric';
-    d.innerHTML = `<span class="hint">${fmt(l.start)} – ${fmt(l.end)}</span><input value="${esc(l.text)}">`;
+    d.innerHTML = `<button type="button" class="lyricPlay" aria-pressed="false" title="Hear this part of the song, to compare with the words">▶ Play</button><span class="hint">${fmt(l.start)} – ${fmt(l.end)}</span><input value="${esc(l.text)}" aria-label="Lyric line ${i + 1}">`;
     d.querySelector('input').oninput = ev => { l.text = ev.target.value; };
+    d.querySelector('button').onclick = ev => playLyric(l, ev.currentTarget);
     $('lyricLines').appendChild(d);
   });
   const split = A().split;
@@ -1671,9 +1713,11 @@ async function pollAnalysis() {
 
 $('anBtn').onclick = async () => {
   if (A().analysis && !confirm('Analyze the song again? This replaces the lyric lines, including your edits.')) return;
-  try { await save(); await post('/api/assist/analyze', { project: PID }); $('anStatus').className = 'busy'; $('anStatus').textContent = 'Starting…'; $('anBtn').disabled = true; anTimer = setTimeout(pollAnalysis, 1500); }
+  try { await save(); stopLyric(); await post('/api/assist/analyze', { project: PID, separate: $('anSeparate').checked }); $('anStatus').className = 'busy'; $('anStatus').textContent = 'Starting…'; $('anBtn').disabled = true; anTimer = setTimeout(pollAnalysis, 1500); }
   catch (e) { $('anStatus').className = 'err'; $('anStatus').textContent = e.message; }
 };
+$('anSeparate').onchange = ev => { try { localStorage.setItem('sd.assist.separate', ev.target.checked ? '1' : '0'); } catch (e) { /* private browsing */ } };
+$('lyricHear').onchange = stopLyric;
 $('lyricSave').onclick = async () => { try { await post('/api/assist/lyrics', { project: PID, lines: A().lines || [] }); await reloadProject(); renderAssist(); toast('Lyrics saved.'); } catch (e) { toast(e.message); } };
 $('lyricAlign').onclick = () => busy($('lyricAlign'), $('alignStatus'), 'Matching… this can take a minute.', async () => {
   if (!$('lyricPaste').value.trim()) throw new Error('Paste the lyrics first.');

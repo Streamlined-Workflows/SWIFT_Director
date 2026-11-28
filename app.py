@@ -1121,7 +1121,9 @@ def song_key(project):
     return f"{project['id']}:{song}", song
 
 
-def assist_analyze(pid):
+def assist_analyze(pid, separate=False):
+    """Start listening to the project's song. With separate, the voice is split from the music first and only the
+    voice is transcribed."""
     with LOCK:
         project = load_project(pid)
         key, song = song_key(project)
@@ -1129,7 +1131,23 @@ def assist_analyze(pid):
             project["assist"]["analysis_key"] = None          # a fresh run replaces the stored result
             save_project(project, touch=False)
     url = COMFY + "/view?" + urllib.parse.urlencode({"filename": song, "type": "input"})
-    return assist_service("/analyze", {"key": key, "url": url})
+    try:
+        return assist_service("/analyze", {"key": key, "url": url, "separate": bool(separate)})
+    except ValueError:
+        if not separate:
+            raise
+        why = assist_service("/health", timeout=4).get("separation_reason")      # refused: say why if the service is there
+        raise ValueError(why or "The song analysis service could not separate the voice.")
+
+
+def assist_vocals(pid):
+    """The separated voice of the project's song, as MP3 bytes, or None when it is not kept."""
+    key, _ = song_key(load_project(pid))
+    try:
+        with urllib.request.urlopen(ASSIST + "/vocals?" + urllib.parse.urlencode({"key": key}), timeout=60) as r:
+            return r.read()
+    except OSError:
+        return None
 
 
 def assist_status(pid):
@@ -1694,6 +1712,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(models.listing())
             if url.path == "/api/assist/status":
                 return self.send_json(assist_status(query.get("project", [""])[0]))
+            if url.path == "/api/assist/vocals":
+                body = assist_vocals(query.get("project", [""])[0])
+                if body is None:
+                    return self.send_json({"error": "The separated voice is not kept any more. Analyze the song again with separation to hear it."}, 404)
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/mpeg")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
             if url.path == "/api/assist/health":
                 try:
                     service = assist_service("/health", timeout=4)
@@ -1819,7 +1846,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/image_jobs/clear":
                 return self.send_json(image_jobs_clear(pid, payload.get("ids")))
             if path == "/api/assist/analyze":
-                return self.send_json(assist_analyze(pid))
+                return self.send_json(assist_analyze(pid, payload.get("separate") is True))
             if path == "/api/assist/lyrics":
                 lines = [{"start": float(l["start"]), "end": float(l["end"]), "text": str(l["text"])[:300]}
                          for l in payload.get("lines", []) if str(l.get("text", "")).strip()]

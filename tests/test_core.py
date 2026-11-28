@@ -245,5 +245,32 @@ class LoreTests(unittest.TestCase):
                 lore.load(bad)
 
 
+
+
+class ListenWithSeparation(unittest.TestCase):
+    """Assisted Storyboard: the option to split the voice from the music before transcribing."""
+
+    def test_the_choice_is_passed_on_and_a_refusal_says_why(self):
+        sent, real_service, real_load, real_save = [], app.assist_service, app.load_project, app.save_project
+        app.load_project = lambda pid: {"id": pid, "song": {"filename": "song.wav"}}
+        app.save_project = lambda project, touch=True: project
+        try:
+            app.assist_service = lambda path, payload=None, timeout=15: sent.append((path, payload)) or {"state": "running"}
+            app.assist_analyze("p1")
+            app.assist_analyze("p1", separate=True)
+            self.assertEqual([p["separate"] for _, p in sent], [False, True])
+            self.assertEqual(sent[1][1]["key"], "p1:song.wav")
+
+            def refusing(path, payload=None, timeout=15):
+                if path == "/analyze":
+                    raise ValueError("The song analysis service is not running on the server (HTTP Error 409).")
+                return {"ok": True, "separation": False, "separation_reason": "The separation software is not installed in the song analysis service (ModuleNotFoundError)."}
+            app.assist_service = refusing
+            with self.assertRaises(ValueError) as e:
+                app.assist_analyze("p1", separate=True)
+            self.assertIn("separation software is not installed", str(e.exception))
+        finally:
+            app.assist_service, app.load_project, app.save_project = real_service, real_load, real_save
+
 if __name__ == "__main__":
     unittest.main()
